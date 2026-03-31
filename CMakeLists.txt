@@ -35,8 +35,11 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(test test.cpp usb_descriptors.c)
-
+add_executable(test test.cpp keyboardMatrix.cpp usb_descriptors.c)
+target_compile_definitions(test PRIVATE
+PICO_DEFAULT_UART_TX_PIN=12
+PICO_DEFAULT_UART_RX_PIN=13
+)
 pico_set_program_name(test "test")
 pico_set_program_version(test "0.1")
 

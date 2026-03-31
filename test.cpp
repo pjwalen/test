@@ -1,113 +1,40 @@
 #include <stdio.h>
 #include <array>
 #include "pico/stdlib.h"
+#include "keyboardMatrix.h"
 #include "tusb.h"
-
-void configureRow(uint gpioPin);
-void configureColumn(uint gpioPin);
-void scan(uint currentRow, uint currentColumn);
-
-std::array<uint, 3> columnGpio = {3, 4, 5};
-std::array<uint, 3> rowGpio = {2, 0, 1};
-enum class Key: uint {
-    ESC = 0,
-    SHIFT = 1,
-    SPACE = 2,
-    D = 3,
-    W = 4,
-    CTRL = 5,
-    S = 6,
-    A = 7,
-    NONE = 1024
-};
-constexpr std::array<const char*, 9> keyStringMap = {"ESC", "SHIFT", "SPACE", "D", "W", "CTRL", "S", "A", "NONE"};
-constexpr std::array<std::array<Key, 3>, 3> colRowMap = {{
-    {{Key::ESC,   Key::SPACE,  Key::CTRL}},
-    {{Key::SHIFT, Key::D,      Key::S}},
-    {{Key::NONE,  Key::W,      Key::A}}
-}};
-constexpr uint64_t debounceTimeoutUs = 5000;
-
-// Configure state tracking
-std::array<bool, 9> keyState = {false};
-std::array<uint64_t, 9> timeSinceStateChange = {0};
 
 
 int main()
 {
     stdio_init_all();
+    KeyboardMatrix keyboardMatrix = KeyboardMatrix();
+    keyboardMatrix.configureRowGpios({{2, 0, 1}});
+    keyboardMatrix.configureColumnGpios({{3, 4, 5}});
+    keyboardMatrix.configureMapping({{
+        {{Key::ESC,   Key::SPACE, Key::CTRL}},
+        {{Key::SHIFT, Key::D,     Key::S}},
+        {{Key::NONE,  Key::W,     Key::A}}
+    }});
     tusb_init();
+    uint64_t lastChangeTime = 0;
     while (1) {
         // Keep the USB stack running
         tud_task(); 
         
-        // Your custom code to scan the keyboard matrix 
-        // and send HID reports goes here!
+        keyboardMatrix.scan();
+        if(lastChangeTime == keyboardMatrix.getLastChangeTime()) {
+            continue;
+        }
+        if(tud_hid_ready()) {
+            lastChangeTime = keyboardMatrix.getLastChangeTime();
+            hid_keyboard_report_t report;
+            keyboardMatrix.getHIDReport(report);
+            tud_hid_report(0, &report, sizeof(report));
+        }
     }
-    // // Configure the GPIO for rows 0-2 of the keyboard matrix
-    // configureRow(rowGpio[0]);
-    // configureRow(rowGpio[1]);
-    // configureRow(rowGpio[2]);
-
-    // // Configure the GPIO for columns 0-2 of the keyboard matrix
-    // configureColumn(columnGpio[0]);
-    // configureColumn(columnGpio[1]);
-    // configureColumn(columnGpio[2]);
-
-    // while(true) {
-    //     for(uint row = 0; row < rowGpio.size(); ++row) {
-    //         for(uint col = 0; col < columnGpio.size(); ++col) {
-    //             scan(row, col);
-    //         }
-    //     }
-    // }
 
     return 0;
-}
-
-
-void configureRow(uint gpioPin) {
-    gpio_init(gpioPin);
-    gpio_set_dir(gpioPin, GPIO_OUT);
-    gpio_put(gpioPin, true);
-}
-
-
-void configureColumn(uint gpioPin) {
-    gpio_init(gpioPin);
-    gpio_pull_up(gpioPin);
-}
-
-
-void scan(uint currentRow, uint currentColumn) {
-        Key currentKey = colRowMap[currentColumn][currentRow];
-        if(currentKey == Key::NONE) {
-            return;
-        }
-
-        // Handle debounce
-        uint64_t newTime = time_us_64();
-        if (newTime - timeSinceStateChange[static_cast<size_t>(currentKey)] < debounceTimeoutUs) {
-            return;
-        }
-
-        // Read the current row
-        gpio_put(rowGpio[currentRow], false);
-        bool isPressed = !gpio_get(columnGpio[currentColumn]);
-
-        // There was a change in the pin state
-        if(keyState[static_cast<size_t>(currentKey)] != isPressed) {
-            // Update the state
-            keyState[static_cast<size_t>(currentKey)] = isPressed;
-            timeSinceStateChange[static_cast<size_t>(currentKey)] = newTime;
-
-            if(keyState[static_cast<size_t>(currentKey)]) {
-                printf("%s has been pressed.\n", keyStringMap[static_cast<size_t>(currentKey)]);
-            } else {
-                printf("%s has been released.\n", keyStringMap[static_cast<size_t>(currentKey)]);
-            }
-        }
-        gpio_put(rowGpio[currentRow], true);
 }
 
 // ====================================================================
